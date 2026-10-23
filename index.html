@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Mailing List Generator</title>
+	<meta name="description" content="">
+	<link rel="shortcut icon" href="favicon.ico">
+	<link rel="icon" type="image/ico" href="favicon.ico">
+	<link rel="stylesheet" href="https://js.arcgis.com/5.1/esri/themes/light/main.css">
+	<link rel="stylesheet" href="css/main.css">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-FY9LG6XVZP"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-FY9LG6XVZP');
+</script>
+</head>
+<body>
+	<calcite-shell>
+		<calcite-navigation slot="header">
+			<div slot="logo" class="brand">
+				<img class="brand-logo" src="https://raleighnc.gov/themes/custom/cityofraleigh/logo.svg" alt="City of Raleigh">
+				<span class="brand-title">Mailing List Generator</span>
+			</div>
+		</calcite-navigation>
+
+		<calcite-shell-panel slot="panel-start">
+			<calcite-panel>
+				<calcite-block heading="Search" description="Enter the beginning of an address and select from list." expanded>
+					<calcite-autocomplete id="addressSearch" label="Address search" placeholder="222 West Hargett Street" icon="search" scale="m"></calcite-autocomplete>
+					<calcite-link id="searchHelp" class="help-link">Help</calcite-link>
+				</calcite-block>
+
+				<calcite-block class="postsearch" heading="Buffer Right-of-Way" expanded hidden>
+					<p>If buffer goes into a right-of-way, use the measure tool to draw a line across the ROW.  This will buffer the distance of the ROW.  Use this buffer as a reference to add additional properties using the Add button below.  Repeat for each ROW.</p>
+					<calcite-link id="measureHelp" class="help-link">Help</calcite-link>
+					<calcite-button id="measure" class="tool" icon-start="measure-line" appearance="outline">Start Measure</calcite-button>
+				</calcite-block>
+
+				<calcite-block class="postsearch" heading="Manage Selected Properties" expanded hidden>
+					<div class="button-row">
+						<calcite-button id="addButton" class="tool" kind="brand" icon-start="plus" appearance="outline">Add</calcite-button>
+						<calcite-button id="removeButton" class="tool" kind="danger" icon-start="minus" appearance="outline">Remove</calcite-button>
+					</div>
+					<calcite-notice id="instructions" icon="information" width="full">
+						<div slot="message"></div>
+					</calcite-notice>
+				</calcite-block>
+
+				<calcite-block class="postsearch" heading="Export" expanded hidden>
+					<div class="button-row">
+						<calcite-button id="labelsButton" icon-start="file-pdf">Generate Labels</calcite-button>
+						<calcite-button id="csvButton" icon-start="file-csv">Export to CSV</calcite-button>
+					</div>
+				</calcite-block>
+
+				<div slot="footer" class="footer">
+					<div class="footer-links">
+						<calcite-link href="https://udo.raleighnc.gov/" target="_blank">Unified Development Ordinance</calcite-link>
+						<span>·</span>
+						<calcite-link id="disclaimerLink">Disclaimer</calcite-link>
+					</div>
+					<p>Designed and developed by the City of Raleigh <calcite-link href="https://raleighnc.gov/apps-maps-and-open-data/services/gis-and-open-data" target="_blank">Geographic Information Systems</calcite-link> Division</p>
+				</div>
+			</calcite-panel>
+		</calcite-shell-panel>
+
+		<div id="map"></div>
+	</calcite-shell>
+
+	<calcite-popover reference-element="searchHelp" label="Address search help" placement="bottom" closable auto-close>
+		<img class="help-image" src="img/AddressSearch.gif" alt="Typing an address and selecting it from the list">
+	</calcite-popover>
+	<calcite-popover reference-element="measureHelp" label="Measure tool help" placement="bottom" closable auto-close>
+		<img class="help-image" src="img/measure.gif" alt="Drawing a measure line across a right-of-way">
+	</calcite-popover>
+
+	<calcite-dialog id="disclaimer" heading="Disclaimer" modal width-scale="s">
+		<p>The City of Raleigh makes every effort to produce and publish the most current and accurate information possible.  However, the maps are produced for informational purposes, and are <strong>NOT</strong> surveys.  No warranties, expressed or implied, are provided for the data therein, its use, or its interpretation.</p>
+		<p>Mailing addresses obtained from Wake County, the City of Raleigh assumes no responsiblity for returned mailings.</p>
+		<calcite-button slot="footer-end" id="disclaimerClose">Close</calcite-button>
+	</calcite-dialog>
+
+    <!-- jsPDF must load before the ArcGIS SDK's internal AMD loader, otherwise it registers as an AMD module instead of window.jspdf -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script type="module" src="https://js.arcgis.com/5.1/"></script>
+    <script type="module" src="js/main.js"></script>
+	<script>
+	  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+	  ga('create', 'UA-11110258-20', 'raleighnc.gov');
+	  ga('send', 'pageview');
+
+	</script>
+</body>
+</html>
