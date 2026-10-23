@@ -56,7 +56,7 @@ updateLayout();
 
 const [
 	Map, VectorTileLayer, FeatureLayer, GraphicsLayer, Graphic, Point, Multipoint, Polyline, Extent, SpatialReference,
-	SimpleFillSymbol, SimpleLineSymbol, PictureMarkerSymbol, Query, query, bufferOperator, projectOperator
+	SimpleFillSymbol, SimpleLineSymbol, CIMSymbol, Query, query, bufferOperator, projectOperator
 ] = await $arcgis.import([
 	"@arcgis/core/Map.js",
 	"@arcgis/core/layers/VectorTileLayer.js",
@@ -70,7 +70,7 @@ const [
 	"@arcgis/core/geometry/SpatialReference.js",
 	"@arcgis/core/symbols/SimpleFillSymbol.js",
 	"@arcgis/core/symbols/SimpleLineSymbol.js",
-	"@arcgis/core/symbols/PictureMarkerSymbol.js",
+	"@arcgis/core/symbols/CIMSymbol.js",
 	"@arcgis/core/rest/support/Query.js",
 	"@arcgis/core/rest/query.js",
 	"@arcgis/core/geometry/operators/bufferOperator.js",
@@ -93,7 +93,7 @@ function distanceFeet (start, end) {
 	return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-var mapElement, graphicsLayer, bufferLayer, sketchLayer, labels = [], pins = [],
+var mapElement, graphicsLayer, bufferLayer, sketchLayer, pinGraphicsLayer, labels = [], pins = [],
 	// current map click mode: null, "add", "remove" or "measure"
 	mode = null,
 	addPoints = [],
@@ -305,9 +305,76 @@ function createSearch (search, onPoint) {
 	});
 }
 
+// circle as a clockwise ring of points, in CIM frame coordinates (y up)
+function circleRing (cx, cy, r) {
+	var ring = [];
+	for (var i = 0; i <= 48; i++) {
+		var a = -2 * Math.PI * i / 48;
+		ring.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+	}
+	return ring;
+}
+
+// teardrop with its tip at (cx, tipY): a round head of radius r joined to the tip by tangent lines
+function teardropRing (cx, cy, r, tipY) {
+	var spread = Math.acos(r / (cy - tipY)),
+		ring = [[cx, tipY]],
+		// clockwise from the left tangent point, over the top, to the right tangent point
+		from = -Math.PI / 2 - spread,
+		to = -Math.PI / 2 + spread - 2 * Math.PI;
+	for (var i = 0; i <= 48; i++) {
+		var a = from + (to - from) * i / 48;
+		ring.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+	}
+	ring.push([cx, tipY]);
+	return ring;
+}
+
+// one layer of the pin; every layer shares the 32 x 32 frame and is anchored at the tip
+function pinMarker (ring, fillColor, stroke) {
+	var layers = [{type: "CIMSolidFill", enable: true, color: fillColor}];
+	if (stroke) {
+		layers.unshift({type: "CIMSolidStroke", enable: true, width: stroke.width, color: stroke.color});
+	}
+	return {
+		type: "CIMVectorMarker",
+		enable: true,
+		size: 32,
+		frame: {xmin: 0, ymin: 0, xmax: 32, ymax: 32},
+		anchorPoint: {x: 0, y: (1.4 - 16) / 32},
+		anchorPointUnits: "Relative",
+		markerGraphics: [{
+			type: "CIMMarkerGraphic",
+			geometry: {rings: [ring]},
+			symbol: {type: "CIMPolygonSymbol", symbolLayers: layers}
+		}]
+	};
+}
+
+// map pin as a CIM symbol: the Calcite teardrop shape (pinTear) in the raleighnc.gov green, with a
+// white center dot. Layers are listed top first; the drop shadow
+// comes from pinGraphicsLayer's effect.
+function searchPinSymbol () {
+	var green = [65, 121, 37, 255],
+		white = [255, 255, 255, 255],
+		body = teardropRing(16, 21, 8.8, 1.4);
+	return new CIMSymbol({
+		data: {
+			type: "CIMSymbolReference",
+			symbol: {
+				type: "CIMPointSymbol",
+				symbolLayers: [
+					pinMarker(circleRing(16, 21, 3.6), white),
+					pinMarker(body, green, {width: 1.5, color: white})
+				]
+			}
+		}
+	});
+}
+
 function searchProperty (point) {
-	mapElement.graphics.removeAll();
-	mapElement.graphics.add(new Graphic({geometry: point, symbol: new PictureMarkerSymbol({url: "img/pin.png", width: "40px", height: "40px"})}));
+	pinGraphicsLayer.removeAll();
+	pinGraphicsLayer.add(new Graphic({geometry: point, symbol: searchPinSymbol()}));
 	getProperty(point);
 }
 
@@ -525,6 +592,8 @@ graphicsLayer = new GraphicsLayer();
 // soft dark shadow keeps the bright cyan buffer readable over light parts of the basemap
 bufferLayer = new GraphicsLayer({effect: "drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.4))"});
 sketchLayer = new GraphicsLayer();
+// the map's built-in graphics can't take effects, so the pin gets its own layer for the blurred shadow
+pinGraphicsLayer = new GraphicsLayer({effect: "drop-shadow(1px 3px 3px rgba(0, 0, 0, 0.45))"});
 mapElement = document.getElementById("map");
 mapElement.map = new Map({
 	basemap: {baseLayers: [new VectorTileLayer({portalItem: {id: config.map.basemap.portalItemId}})]},
@@ -532,7 +601,8 @@ mapElement.map = new Map({
 		new FeatureLayer({url: config.propertyService + "/0", title: "Property", popupEnabled: false}),
 		graphicsLayer,
 		bufferLayer,
-		sketchLayer
+		sketchLayer,
+		pinGraphicsLayer
 	]
 });
 mapElement.spatialReference = SpatialReference.WebMercator;
