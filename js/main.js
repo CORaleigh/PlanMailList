@@ -56,11 +56,10 @@ narrowScreen.addEventListener("change", updateLayout);
 updateLayout();
 
 const [
-	Map, MapView, VectorTileLayer, FeatureLayer, GraphicsLayer, Graphic, Point, Multipoint, Polyline, Extent, SpatialReference,
+	Map, VectorTileLayer, FeatureLayer, GraphicsLayer, Graphic, Point, Multipoint, Polyline, Extent, SpatialReference,
 	SimpleFillSymbol, SimpleLineSymbol, PictureMarkerSymbol, Query, query, bufferOperator, projectOperator
 ] = await $arcgis.import([
 	"@arcgis/core/Map.js",
-	"@arcgis/core/views/MapView.js",
 	"@arcgis/core/layers/VectorTileLayer.js",
 	"@arcgis/core/layers/FeatureLayer.js",
 	"@arcgis/core/layers/GraphicsLayer.js",
@@ -86,7 +85,7 @@ var statePlane = new SpatialReference({wkid: 2264});
 
 function bufferFeet (geometry, feet) {
 	var buffered = bufferOperator.execute(projectOperator.execute(geometry, statePlane), feet, {unit: "feet"});
-	return projectOperator.execute(buffered, view.spatialReference);
+	return projectOperator.execute(buffered, mapElement.spatialReference);
 }
 
 function distanceFeet (start, end) {
@@ -95,7 +94,7 @@ function distanceFeet (start, end) {
 	return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-var view, graphicsLayer, bufferLayer, sketchLayer, labels = [], pins = [],
+var mapElement, graphicsLayer, bufferLayer, sketchLayer, labels = [], pins = [],
 	// current map click mode: null, "add", "remove" or "measure"
 	mode = null,
 	addPoints = [],
@@ -159,7 +158,7 @@ function queryProperties (geometry) {
 		geometry: geometry,
 		outFields: ['PIN_NUM'],
 		returnGeometry: true,
-		outSpatialReference: view.spatialReference
+		outSpatialReference: mapElement.spatialReference
 	});
 	return query.executeQueryJSON(config.propertyService + "/0", q);
 }
@@ -184,7 +183,7 @@ function buffer (property) {
 	var geometry = bufferFeet(property, 100);
 	bufferLayer.removeAll();
 	bufferLayer.add(new Graphic({geometry: geometry, symbol: SimpleFillSymbol.fromJSON(config.innerFill)}));
-	view.goTo(bufferLayer.graphics.toArray());
+	mapElement.goTo(bufferLayer.graphics.toArray());
 	getAdjacentProperties(geometry, false);
 }
 
@@ -248,7 +247,7 @@ function createSearch () {
 			return;
 		}
 		search.inputValue = address;
-		var params = new URLSearchParams({f: "json", outSR: view.spatialReference.wkid, SingleLine: address});
+		var params = new URLSearchParams({f: "json", outSR: mapElement.spatialReference.wkid, SingleLine: address});
 		if (magicKeys[address]) {
 			params.set("magicKey", magicKeys[address]);
 		}
@@ -256,9 +255,9 @@ function createSearch () {
 		.then(function (response) { return response.json(); })
 		.then(function (data) {
 			if (data.candidates && data.candidates.length > 0) {
-				var point = new Point({x: data.candidates[0].location.x, y: data.candidates[0].location.y, spatialReference: view.spatialReference});
-				view.graphics.removeAll();
-				view.graphics.add(new Graphic({geometry: point, symbol: new PictureMarkerSymbol({url: "img/pin.png", width: "40px", height: "40px"})}));
+				var point = new Point({x: data.candidates[0].location.x, y: data.candidates[0].location.y, spatialReference: mapElement.spatialReference});
+				mapElement.graphics.removeAll();
+				mapElement.graphics.add(new Graphic({geometry: point, symbol: new PictureMarkerSymbol({url: "img/pin.png", width: "40px", height: "40px"})}));
 				getProperty(point);
 			}
 		})
@@ -287,7 +286,7 @@ function setMode (newMode) {
 }
 
 function removeProperty (event) {
-	view.hitTest(event, {include: [graphicsLayer]}).then(function (response) {
+	mapElement.hitTest(event, {include: [graphicsLayer]}).then(function (response) {
 		if (response.results.length === 0) {
 			return;
 		}
@@ -321,14 +320,14 @@ function addProperty (event) {
 
 function finishAdd () {
 	if (addPoints.length > 0) {
-		getAdjacentProperties(new Multipoint({points: addPoints, spatialReference: view.spatialReference}), true);
+		getAdjacentProperties(new Multipoint({points: addPoints, spatialReference: mapElement.spatialReference}), true);
 	}
 	addPoints = [];
 	sketchLayer.removeAll();
 }
 
 function measureLine (start, end) {
-	return new Polyline({paths: [[[start.x, start.y], [end.x, end.y]]], spatialReference: view.spatialReference});
+	return new Polyline({paths: [[[start.x, start.y], [end.x, end.y]]], spatialReference: mapElement.spatialReference});
 }
 
 function measureClick (event) {
@@ -349,7 +348,7 @@ function measureMove (event) {
 	if (mode !== "measure" || !measureStart) {
 		return;
 	}
-	var end = view.toMap(event);
+	var end = mapElement.toMap(event);
 	if (!end) {
 		return;
 	}
@@ -366,7 +365,7 @@ function secondBuffer(graphic, distance) {
 		bufferLayer.remove(bufferLayer.graphics.getItemAt(1));
 	}
 	bufferLayer.add(new Graphic({geometry: geometry, symbol: SimpleFillSymbol.fromJSON(config.outerFill)}));
-	view.goTo(bufferLayer.graphics.toArray());
+	mapElement.goTo(bufferLayer.graphics.toArray());
 	getAdjacentProperties(geometry, false);
 }
 
@@ -443,47 +442,48 @@ function exportCsv () {
 graphicsLayer = new GraphicsLayer();
 bufferLayer = new GraphicsLayer();
 sketchLayer = new GraphicsLayer();
-view = new MapView({
-	container: "map",
-	map: new Map({
-		basemap: {baseLayers: [new VectorTileLayer({portalItem: {id: config.map.basemap.portalItemId}})]},
-		layers: [
-			new FeatureLayer({url: config.propertyService + "/0", title: "Property", popupEnabled: false}),
-			graphicsLayer,
-			bufferLayer,
-			sketchLayer
-		]
-	}),
-	extent: projectOperator.execute(Extent.fromJSON(config.map.extent), SpatialReference.WebMercator),
-	spatialReference: SpatialReference.WebMercator,
-	constraints: {rotationEnabled: false}
+mapElement = document.getElementById("map");
+mapElement.map = new Map({
+	basemap: {baseLayers: [new VectorTileLayer({portalItem: {id: config.map.basemap.portalItemId}})]},
+	layers: [
+		new FeatureLayer({url: config.propertyService + "/0", title: "Property", popupEnabled: false}),
+		graphicsLayer,
+		bufferLayer,
+		sketchLayer
+	]
 });
+mapElement.spatialReference = SpatialReference.WebMercator;
+mapElement.extent = projectOperator.execute(Extent.fromJSON(config.map.extent), SpatialReference.WebMercator);
+mapElement.constraints = {rotationEnabled: false};
 
-view.on("click", function (event) {
+// map component events carry the view event in event.detail
+mapElement.addEventListener("arcgisViewClick", function (event) {
 	switch (mode) {
 		case "add":
-		addProperty(event);
+		addProperty(event.detail);
 		break;
 		case "remove":
-		removeProperty(event);
+		removeProperty(event.detail);
 		break;
 		case "measure":
-		measureClick(event);
+		measureClick(event.detail);
 		break;
 	}
 });
 
-view.on("double-click", function (event) {
+mapElement.addEventListener("arcgisViewDoubleClick", function (event) {
 	if (mode === "add") {
-		// finish the selection instead of zooming in; the view doesn't fire
-		// "click" for a double-click, so the double-clicked property is added here
-		event.stopPropagation();
-		addProperty(event);
+		// finish the selection instead of zooming in; the map doesn't fire
+		// a click for a double-click, so the double-clicked property is added here
+		event.detail.stopPropagation();
+		addProperty(event.detail);
 		finishAdd();
 	}
 });
 
-view.on("pointer-move", measureMove);
+mapElement.addEventListener("arcgisViewPointerMove", function (event) {
+	measureMove(event.detail);
+});
 
 document.getElementById("labelsButton").addEventListener("click", generateLabels);
 document.getElementById("csvButton").addEventListener("click", exportCsv);
