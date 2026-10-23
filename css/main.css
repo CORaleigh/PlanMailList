@@ -5,29 +5,39 @@ html, body {
   background-color: #ededed;
 }
 
-calcite-navigation {
-  /* dark green from the City logo, so the white logo stands out */
-  --calcite-navigation-background-color: #006937;
+/* City of Raleigh colors applied to Calcite, matching raleighnc.gov
+   (buttons #417925, darkening to the heading green #046A38 on hover) */
+:root {
+  --calcite-color-brand: #417925;
+  --calcite-color-brand-hover: #046A38;
+  --calcite-color-brand-press: #046A38;
+  --calcite-color-brand-underline: #41792566;
+  --calcite-color-text-link: #01426A;
+  --calcite-color-status-info: #01426A;
+  --calcite-color-text-1: #414042;
 }
 
+/* header and logo sized to match the raleighnc.gov site header */
 .brand {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 8px 16px;
+  gap: 36px;
+  padding: 14px 24px;
+  background-color: #fff;
+  border-top: 6px solid #72A300;
+  border-bottom: 1px solid #F2F2F2;
 }
 
 .brand-logo {
-  height: 40px;
-  width: auto;
-  /* render the multi-color logo in solid white */
-  filter: brightness(0) invert(1);
+  width: 120px;
+  height: auto;
 }
 
 .brand-title {
-  color: #fff;
+  margin: 0;
+  color: #046A38;
   font-size: var(--calcite-font-size-2);
-  font-weight: var(--calcite-font-weight-medium);
+  font-weight: var(--calcite-font-weight-bold);
 }
 
 calcite-shell-panel[layout="vertical"] {
@@ -54,17 +64,14 @@ calcite-block p {
   cursor: pointer;
 }
 
-.help-image {
+.help-video {
   display: block;
-  max-width: min(400px, 80vw);
-  padding: 8px;
+  width: min(400px, 80vw);
+  height: auto;
+  margin: 8px;
 }
 
 @media (max-width: 767px) {
-  .brand-logo {
-    height: 32px;
-  }
-
   .brand-title {
     font-size: var(--calcite-font-size-0);
   }
@@ -72,6 +79,56 @@ calcite-block p {
   .button-row calcite-button {
     flex: 1 1 auto;
   }
+}
+
+.help-steps {
+  max-width: min(400px, 80vw);
+  margin: 0;
+  padding: 0 16px 12px 32px;
+  line-height: 1.4;
+}
+
+.row-width,
+.buffer-distance {
+  margin-top: 12px;
+}
+
+.buffer-distance calcite-input {
+  max-width: 160px;
+}
+
+.hide-about {
+  margin: 0;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.input-row calcite-input {
+  flex: 1 1 auto;
+}
+
+#resultStatus {
+  font-weight: var(--calcite-font-weight-medium);
+}
+
+#resultStatus:empty {
+  display: none;
+}
+
+/* text for screen readers only */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .button-row {
@@ -86,19 +143,25 @@ calcite-block p {
   width: 100%;
 }
 
-.footer {
-  padding: 12px;
-  text-align: center;
-  font-size: var(--calcite-font-size--1);
-  color: var(--calcite-color-text-3);
+.about-button {
+  margin-inline-start: auto;
 }
 
-.footer p {
-  margin: 8px 0 0;
+.export-footer {
+  width: 100%;
+  padding: 8px 4px;
 }
 
-.footer-links {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
+.export-footer p {
+  margin: 0 0 8px;
+}
+
+.dialog-heading {
+  margin: 16px 0 8px;
+  font-size: var(--calcite-font-size-1);
+  font-weight: var(--calcite-font-weight-medium);
+}
+
+.dialog-heading:first-child {
+  margin-top: 0;
 }

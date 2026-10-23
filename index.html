@@ -21,24 +21,34 @@
 </head>
 <body>
 	<calcite-shell>
-		<calcite-navigation slot="header">
-			<div slot="logo" class="brand">
-				<img class="brand-logo" src="https://raleighnc.gov/themes/custom/cityofraleigh/logo.svg" alt="City of Raleigh">
-				<span class="brand-title">Mailing List Generator</span>
-			</div>
-		</calcite-navigation>
+		<header slot="header" class="brand">
+			<img class="brand-logo" src="https://raleighnc.gov/themes/custom/cityofraleigh/logo.svg" alt="City of Raleigh">
+			<h1 class="brand-title">Mailing List Generator</h1>
+			<calcite-button id="aboutButton" class="about-button" appearance="transparent" kind="neutral" icon-start="information">About</calcite-button>
+		</header>
 
-		<calcite-shell-panel slot="panel-start">
+		<calcite-shell-panel slot="panel-start" role="main" aria-label="Mailing list tools">
 			<calcite-panel>
 				<calcite-block heading="Search" description="Enter the beginning of an address and select from list." expanded>
 					<calcite-autocomplete id="addressSearch" label="Address search" placeholder="222 West Hargett Street" icon="search" scale="m"></calcite-autocomplete>
-					<calcite-link id="searchHelp" class="help-link">Help</calcite-link>
+					<calcite-link id="searchHelp" class="help-link" href="#">Help</calcite-link>
+					<calcite-label class="buffer-distance">
+						Buffer distance
+						<calcite-input id="bufferDistance" type="number" min="1" max="5280" step="1" value="100" suffix-text="ft"></calcite-input>
+					</calcite-label>
 				</calcite-block>
 
 				<calcite-block class="postsearch" heading="Buffer Right-of-Way" expanded hidden>
-					<p>If buffer goes into a right-of-way, use the measure tool to draw a line across the ROW.  This will buffer the distance of the ROW.  Use this buffer as a reference to add additional properties using the Add button below.  Repeat for each ROW.</p>
-					<calcite-link id="measureHelp" class="help-link">Help</calcite-link>
+					<p>If the buffer goes into a right-of-way (ROW), measure across the ROW on the map, or type its width below. The buffer is extended by that distance and the properties it reaches are added. Repeat for each ROW.</p>
+					<calcite-link id="measureHelp" class="help-link" href="#">Help</calcite-link>
 					<calcite-button id="measure" class="tool" icon-start="measure-line" appearance="outline">Start Measure</calcite-button>
+					<calcite-label class="row-width">
+						Right-of-way width
+						<div class="input-row">
+							<calcite-input id="rowWidth" type="number" min="1" step="1" suffix-text="ft" placeholder="e.g. 66"></calcite-input>
+							<calcite-button id="rowApply" appearance="outline">Apply width</calcite-button>
+						</div>
+					</calcite-label>
 				</calcite-block>
 
 				<calcite-block class="postsearch" heading="Manage Selected Properties" expanded hidden>
@@ -47,43 +57,68 @@
 						<calcite-button id="removeButton" class="tool" kind="danger" icon-start="minus" appearance="outline">Remove</calcite-button>
 					</div>
 					<calcite-notice id="instructions" icon="information" width="full">
-						<div slot="message"></div>
+						<div slot="message" role="status"></div>
 					</calcite-notice>
 				</calcite-block>
 
-				<calcite-block class="postsearch" heading="Export" expanded hidden>
+				<calcite-block id="addBlock" class="postsearch" heading="Add a property by address" icon-start="plus" collapsible hidden>
+					<calcite-autocomplete id="addSearch" label="Add a property by address" placeholder="Type an address" icon="search"></calcite-autocomplete>
+				</calcite-block>
+
+				<calcite-block id="selectedBlock" class="postsearch" heading="Selected properties" icon-start="list" collapsible hidden>
+					<calcite-list id="selectedList" label="Selected properties" selection-mode="none"></calcite-list>
+				</calcite-block>
+
+
+				<!-- export stays in view at the bottom of the panel; shown after a search -->
+				<div slot="footer" class="export-footer postsearch" hidden>
+					<p id="resultStatus" role="status"></p>
 					<div class="button-row">
 						<calcite-button id="labelsButton" icon-start="file-pdf">Generate Labels</calcite-button>
 						<calcite-button id="csvButton" icon-start="file-csv">Export to CSV</calcite-button>
 					</div>
-				</calcite-block>
-
-				<div slot="footer" class="footer">
-					<div class="footer-links">
-						<calcite-link href="https://udo.raleighnc.gov/" target="_blank">Unified Development Ordinance</calcite-link>
-						<span>·</span>
-						<calcite-link id="disclaimerLink">Disclaimer</calcite-link>
-					</div>
-					<p>Designed and developed by the City of Raleigh <calcite-link href="https://raleighnc.gov/apps-maps-and-open-data/services/gis-and-open-data" target="_blank">Geographic Information Systems</calcite-link> Division</p>
 				</div>
 			</calcite-panel>
 		</calcite-shell-panel>
 
-		<arcgis-map id="map">
+		<arcgis-map id="map" role="region" aria-label="Property map">
 			<arcgis-zoom slot="top-left"></arcgis-zoom>
 		</arcgis-map>
 	</calcite-shell>
 
 	<calcite-popover reference-element="searchHelp" label="Address search help" placement="bottom" closable auto-close>
-		<img class="help-image" src="img/AddressSearch.gif" alt="Typing an address and selecting it from the list">
+		<video class="help-video" controls muted playsinline preload="none" width="400" height="190" poster="img/AddressSearch.png" aria-label="Video: typing 222 W Harg into the search box and selecting 222 W Hargett St from the suggestions">
+			<source src="img/AddressSearch.mp4" type="video/mp4">
+		</video>
+		<ol class="help-steps">
+			<li>Type at least the first four characters of the address.</li>
+			<li>Choose the matching address from the suggestions, using the mouse or the arrow keys and Enter.</li>
+			<li>The property is selected and a buffer is drawn around it (100 feet unless you change the buffer distance).</li>
+		</ol>
 	</calcite-popover>
 	<calcite-popover reference-element="measureHelp" label="Measure tool help" placement="bottom" closable auto-close>
-		<img class="help-image" src="img/measure.gif" alt="Drawing a measure line across a right-of-way">
+		<video class="help-video" controls muted playsinline preload="none" width="400" height="267" poster="img/measure.png" aria-label="Video: drawing a measure line across S Dawson St, which adds a dashed buffer the width of the right-of-way">
+			<source src="img/measure.mp4" type="video/mp4">
+		</video>
+		<ol class="help-steps">
+			<li>Select Start Measure.</li>
+			<li>On the map, click or tap one edge of the right-of-way, then the opposite edge.</li>
+			<li>Or, without the map: type the right-of-way width in feet and select Apply width.</li>
+			<li>A dashed buffer the width of the right-of-way is added, and properties it touches are selected.</li>
+		</ol>
 	</calcite-popover>
 
-	<calcite-dialog id="disclaimer" heading="Disclaimer" modal width-scale="s">
+	<calcite-dialog id="disclaimer" heading="About this app" modal width-scale="s">
+		<h2 class="dialog-heading">Disclaimer</h2>
 		<p>The City of Raleigh makes every effort to produce and publish the most current and accurate information possible.  However, the maps are produced for informational purposes, and are <strong>NOT</strong> surveys.  No warranties, expressed or implied, are provided for the data therein, its use, or its interpretation.</p>
-		<p>Mailing addresses obtained from Wake County, the City of Raleigh assumes no responsiblity for returned mailings.</p>
+		<p>Mailing addresses obtained from Wake County, the City of Raleigh assumes no responsibility for returned mailings.</p>
+		<h2 class="dialog-heading">Resources</h2>
+		<p><calcite-link href="https://udo.raleighnc.gov/" target="_blank" icon-end="launch">Unified Development Ordinance<span class="visually-hidden"> (opens in a new tab)</span></calcite-link></p>
+		<p>Designed and developed by the City of Raleigh <calcite-link href="https://raleighnc.gov/apps-maps-and-open-data/services/gis-and-open-data" target="_blank" icon-end="launch">Geographic Information Systems<span class="visually-hidden"> (opens in a new tab)</span></calcite-link> Division.</p>
+		<calcite-label slot="footer-start" layout="inline" class="hide-about">
+			<calcite-checkbox id="hideAbout"></calcite-checkbox>
+			Don't show this again
+		</calcite-label>
 		<calcite-button slot="footer-end" id="disclaimerClose">Close</calcite-button>
 	</calcite-dialog>
 

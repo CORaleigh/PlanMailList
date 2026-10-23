@@ -6,7 +6,6 @@ var config = {
 	},
 	addressService:"https://maps.raleighnc.gov/arcgis/rest/services/Addresses/MapServer/0/query",
     propertyService:"https://maps.raleighnc.gov/arcgis/rest/services/Property/Property//MapServer",
-    //mailListService:"https://maps.raleighnc.gov/arcgis/rest/services/Parcels/MapServer/exts/PropertySOE/RealEstateSearch",
     mailListService:"https://maps.raleighnc.gov/arcgis/rest/services/Property/Property/MapServer/1",
     geocodeService:"https://maps.raleighnc.gov/arcgis/rest/services/Locators/FindMyService/GeocodeServer",
     outerFill: {
@@ -16,8 +15,8 @@ var config = {
         outline: {
             type: "esriSLS",
             style: "esriSLSDash",
-            color: [228, 255, 0],
-            width: 4
+            color: [0, 255, 255],
+            width: 3
         }
     },
     innerFill: {
@@ -27,14 +26,14 @@ var config = {
         outline: {
             type: "esriSLS",
             style: "esriSLSSolid",
-            color: [228, 255, 0],
-            width: 4
+            color: [0, 255, 255],
+            width: 3
         }
     },
     propertyFill: {
         type: "esriSFS",
         style: "esriSFSSolid",
-        color: [255, 0, 0, 0],
+        color: [255, 0, 0, 26],
         outline: {
             type: "esriSLS",
             style: "esriSLSSolid",
@@ -98,20 +97,27 @@ var mapElement, graphicsLayer, bufferLayer, sketchLayer, labels = [], pins = [],
 	// current map click mode: null, "add", "remove" or "measure"
 	mode = null,
 	addPoints = [],
-	measureStart = null;
+	measureStart = null,
+	// site address of each selected property, by PIN
+	siteAddresses = {},
+	// searched property's geometry, kept so the buffer can be redrawn at a new distance
+	subjectGeometry = null;
+
+// notification buffer distance in feet (100 unless the user changes it)
+function bufferDistance () {
+	var feet = parseFloat(document.getElementById("bufferDistance").value);
+	return feet > 0 ? feet : 100;
+}
 
 function getMailingAddresses (pins) {
 	var where = "PIN_NUM IN (" + pins.map(function (pin) {
 		return "'" + pin + "'";
 	}).join(",") + ")";
-	query.executeQueryJSON(config.mailListService, new Query({where: where, outFields: ['*']}))
+	// only the fields the labels and the property list use
+	query.executeQueryJSON(config.mailListService, new Query({where: where, outFields: ['PIN_NUM', 'OWNER', 'ADDR1', 'ADDR2', 'ADDR3', 'SITE_ADDRESS']}))
 	.then(function(data) {
-		var label = {},
-			tbody = document.querySelector("#addressTable tbody");
+		var label = {};
 		labels = [];
-		if (tbody) {
-			tbody.replaceChildren();
-		}
 
 		data.features.forEach(function(feature) {
 			var account = feature.attributes,
@@ -120,24 +126,20 @@ function getMailingAddresses (pins) {
 				owner = owner.substring(0,50) + "...";
 			}
 			label = {owner:owner, addr1:account.ADDR1,addr2:account.ADDR2,addr3:account.ADDR3,addr: account.ADDR1+"\n"+account.ADDR2+"\n"+account.ADDR3, pin:account.PIN_NUM};
+			if (account.SITE_ADDRESS && !siteAddresses[account.PIN_NUM]) {
+				siteAddresses[account.PIN_NUM] = account.SITE_ADDRESS.trim();
+			}
 			if (account.PIN_NUM === pins[0]) {
 				labels.unshift(label);
 			} else {
 				labels.push(label);
 			}
-			if (tbody) {
-				var tr = tbody.insertRow();
-				tr.dataset.pin = account.PIN_NUM;
-				tr.insertCell().textContent = owner;
-				tr.insertCell().textContent = label.addr;
-				tr.addEventListener("mouseover", function () {
-					highlightProperty(account.PIN_NUM);
-				});
-			}
 		});
 		document.querySelectorAll(".postsearch").forEach(function (el) {
 			el.hidden = false;
 		});
+		renderSelectedList();
+		updateResultStatus();
 		console.log("success");
 	})
 	.catch(function(error) {
@@ -145,12 +147,46 @@ function getMailingAddresses (pins) {
 	});
 }
 
+// pin === null clears the highlight
 function highlightProperty (pin) {
 	graphicsLayer.graphics.forEach(function (graphic) {
 		var symbol = graphic.symbol.clone();
-		symbol.color = (graphic.attributes.PIN_NUM === pin) ? [255, 0, 0, 0.60] : [255, 0, 0, 0];
+		symbol.color = (graphic.attributes.PIN_NUM === pin) ? [255, 0, 0, 0.60] : [255, 0, 0, 0.10];
 		graphic.symbol = symbol;
 	});
+}
+
+// keyboard and screen reader friendly list of the selected properties, each with a Remove action
+function renderSelectedList () {
+	var list = document.getElementById("selectedList");
+	list.replaceChildren();
+	pins.forEach(function (pin, i) {
+		var count = labels.filter(function (label) { return label.pin === pin; }).length,
+			name = siteAddresses[pin] || "PIN " + pin,
+			item = document.createElement("calcite-list-item");
+		item.label = name;
+		item.description = (i === 0 ? "Searched property · " : "") + "PIN " + pin + " · " +
+			(count === 0 ? "no mailing address on record" : count + (count === 1 ? " mailing address" : " mailing addresses"));
+		if (i > 0) {
+			var action = document.createElement("calcite-action");
+			action.slot = "actions-end";
+			action.icon = "trash";
+			action.text = "Remove " + name;
+			action.addEventListener("click", function () {
+				removePin(pin);
+				document.getElementById("selectedList").setFocus();
+			});
+			item.appendChild(action);
+		}
+		["mouseenter", "focusin"].forEach(function (type) {
+			item.addEventListener(type, function () { highlightProperty(pin); });
+		});
+		["mouseleave", "focusout"].forEach(function (type) {
+			item.addEventListener(type, function () { highlightProperty(null); });
+		});
+		list.appendChild(item);
+	});
+	document.getElementById("selectedBlock").heading = "Selected properties (" + pins.length + ")";
 }
 
 function queryProperties (geometry) {
@@ -169,8 +205,13 @@ function getAdjacentProperties (geometry, add) {
 	}
 	queryProperties(geometry).then(function (featureSet) {
 		featureSet.features.forEach(function (feature) {
-			if (pins.indexOf(feature.attributes.PIN_NUM) === -1) {
-				pins.push(feature.attributes.PIN_NUM);
+			var pin = feature.attributes.PIN_NUM;
+			if (pins.indexOf(pin) === -1) {
+				pins.push(pin);
+			}
+			// re-adding a selected property shouldn't stack a second (darker) graphic on it
+			if (graphicsLayer.graphics.some(function (graphic) { return graphic.attributes.PIN_NUM === pin; })) {
+				return;
 			}
 			feature.symbol = SimpleFillSymbol.fromJSON(config.propertyFill);
 			graphicsLayer.add(feature);
@@ -180,7 +221,7 @@ function getAdjacentProperties (geometry, add) {
 }
 
 function buffer (property) {
-	var geometry = bufferFeet(property, 100);
+	var geometry = bufferFeet(property, bufferDistance());
 	bufferLayer.removeAll();
 	bufferLayer.add(new Graphic({geometry: geometry, symbol: SimpleFillSymbol.fromJSON(config.innerFill)}));
 	mapElement.goTo(bufferLayer.graphics.toArray());
@@ -189,17 +230,19 @@ function buffer (property) {
 
 function getProperty (point) {
 	pins = [];
+	siteAddresses = {};
 	queryProperties(point).then(function (featureSet) {
 		if (featureSet.features.length > 0) {
 			pins.push(featureSet.features[0].attributes.PIN_NUM);
-			buffer(featureSet.features[0].geometry);
+			subjectGeometry = featureSet.features[0].geometry;
+			buffer(subjectGeometry);
 		}
 	});
 }
 
-function createSearch () {
-	var search = document.getElementById("addressSearch"),
-		cache = {},
+// address autocomplete backed by the City geocoder; onPoint receives the matched location
+function createSearch (search, onPoint) {
+	var cache = {},
 		magicKeys = {},
 		searching;
 
@@ -255,21 +298,32 @@ function createSearch () {
 		.then(function (response) { return response.json(); })
 		.then(function (data) {
 			if (data.candidates && data.candidates.length > 0) {
-				var point = new Point({x: data.candidates[0].location.x, y: data.candidates[0].location.y, spatialReference: mapElement.spatialReference});
-				mapElement.graphics.removeAll();
-				mapElement.graphics.add(new Graphic({geometry: point, symbol: new PictureMarkerSymbol({url: "img/pin.png", width: "40px", height: "40px"})}));
-				getProperty(point);
+				onPoint(new Point({x: data.candidates[0].location.x, y: data.candidates[0].location.y, spatialReference: mapElement.spatialReference}));
 			}
 		})
 		.catch(function (error) { console.log("error", error); });
 	});
 }
 
+function searchProperty (point) {
+	mapElement.graphics.removeAll();
+	mapElement.graphics.add(new Graphic({geometry: point, symbol: new PictureMarkerSymbol({url: "img/pin.png", width: "40px", height: "40px"})}));
+	getProperty(point);
+}
+
+function addPropertyByAddress (point) {
+	var search = document.getElementById("addSearch");
+	getAdjacentProperties(point, true);
+	search.value = "";
+	search.inputValue = "";
+	search.replaceChildren();
+}
+
 var toolButtons = {measure: "measure", add: "addButton", remove: "removeButton"},
 	instructions = {
-		measure: "Click on one side of the right-of-way, then click on the other side.",
-		add: "Single click on each property to add, double click on last property to finish selection.",
-		remove: "Single click each red property to remove from selection."
+		measure: "On the map, click or tap one edge of the right-of-way, then the opposite edge. You can also type the width below.",
+		add: "Click or tap each property on the map to add it, then double-click or double-tap the last one to finish. You can also use Add a property by address below.",
+		remove: "Click or tap a red property on the map to remove it, or use the Remove buttons under Selected properties below."
 	};
 
 function setMode (newMode) {
@@ -287,34 +341,46 @@ function setMode (newMode) {
 
 function removeProperty (event) {
 	mapElement.hitTest(event, {include: [graphicsLayer]}).then(function (response) {
-		if (response.results.length === 0) {
-			return;
-		}
-		var graphic = response.results[0].graphic,
-			pin = graphic.attributes.PIN_NUM;
-		if (pin != pins[0]) {
-			graphicsLayer.remove(graphic);
-			pins.splice(pins.indexOf(pin), 1);
-			for (var i = 0; i < labels.length; ++i) {
-				if ((labels[i].pin === pin)) {
-					labels.splice(i--, 1);
-				}
-			}
-
-			document.querySelectorAll("tr").forEach(function (tr) {
-				if (tr.dataset.pin === pin) {
-					tr.remove();
-				}
-			});
+		if (response.results.length > 0) {
+			removePin(response.results[0].graphic.attributes.PIN_NUM);
 		}
 	});
+}
+
+// the searched property (pins[0]) can't be removed
+function removePin (pin) {
+	if (pin == pins[0] || pins.indexOf(pin) === -1) {
+		return;
+	}
+	graphicsLayer.graphics.toArray().forEach(function (graphic) {
+		if (graphic.attributes.PIN_NUM === pin) {
+			graphicsLayer.remove(graphic);
+		}
+	});
+	pins.splice(pins.indexOf(pin), 1);
+	for (var i = 0; i < labels.length; ++i) {
+		if ((labels[i].pin === pin)) {
+			labels.splice(i--, 1);
+		}
+	}
+	renderSelectedList();
+	updateResultStatus();
+}
+
+// visible count that is also announced by screen readers (role="status")
+function updateResultStatus () {
+	var parcels = pins.length,
+		addresses = labels.length;
+	document.getElementById("resultStatus").textContent =
+		addresses + (addresses === 1 ? " mailing address" : " mailing addresses") + " from " +
+		parcels + (parcels === 1 ? " property" : " properties") + " selected.";
 }
 
 function addProperty (event) {
 	addPoints.push([event.mapPoint.x, event.mapPoint.y]);
 	sketchLayer.add(new Graphic({
 		geometry: event.mapPoint,
-		symbol: {type: "simple-marker", color: [0, 255, 0], size: 8, outline: {color: [255, 255, 255], width: 1}}
+		symbol: {type: "simple-marker", color: [53, 172, 70], size: 8, outline: {color: [255, 255, 255], width: 1}}
 	}));
 }
 
@@ -337,11 +403,27 @@ function measureClick (event) {
 	}
 	var length = distanceFeet(measureStart, event.mapPoint);
 	setMode(null);
-	if (length < 100) {
-		secondBuffer(bufferLayer.graphics.getItemAt(0), length);
-	} else {
-		alert('Right-of-Way width is greater than 100 feet.')
+	document.getElementById("rowWidth").value = String(Math.round(length));
+	applyRightOfWay(length);
+}
+
+// typed (keyboard) or measured right-of-way width, in feet
+function applyRightOfWay (width) {
+	var input = document.getElementById("rowWidth");
+	if (!(width > 0)) {
+		input.status = "invalid";
+		input.validationMessage = "Enter the right-of-way width in feet.";
+		return;
 	}
+	// a right-of-way as wide as the buffer distance or wider isn't counted
+	if (width >= bufferDistance()) {
+		input.status = "invalid";
+		input.validationMessage = "Right-of-way is " + bufferDistance() + " feet or wider (the buffer distance), so no extra buffer is added.";
+		return;
+	}
+	input.status = "idle";
+	input.validationMessage = "";
+	secondBuffer(bufferLayer.graphics.getItemAt(0), width);
 }
 
 function measureMove (event) {
@@ -355,7 +437,7 @@ function measureMove (event) {
 	sketchLayer.removeAll();
 	sketchLayer.add(new Graphic({
 		geometry: measureLine(measureStart, end),
-		symbol: new SimpleLineSymbol({style: "solid", color: [0, 255, 0], width: 3})
+		symbol: new SimpleLineSymbol({style: "solid", color: [53, 172, 70], width: 3})
 	}));
 }
 
@@ -436,11 +518,12 @@ function exportCsv () {
 	labels.forEach(function (addr) {
 		result += [addr.owner, addr.addr1, addr.addr2, addr.addr3].map(quote).join(',') + "\n";
 	});
-	downloadBlob(new Blob([result], {type: 'text/csv;charset=utf-8'}), 'tabledata.csv');
+	downloadBlob(new Blob([result], {type: 'text/csv;charset=utf-8'}), 'mailing_list_table.csv');
 }
 
 graphicsLayer = new GraphicsLayer();
-bufferLayer = new GraphicsLayer();
+// soft dark shadow keeps the bright cyan buffer readable over light parts of the basemap
+bufferLayer = new GraphicsLayer({effect: "drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.4))"});
 sketchLayer = new GraphicsLayer();
 mapElement = document.getElementById("map");
 mapElement.map = new Map({
@@ -495,11 +578,88 @@ Object.keys(toolButtons).forEach(function (key) {
 	});
 });
 
-document.getElementById("disclaimerLink").addEventListener("click", function () {
-	document.getElementById("disclaimer").open = true;
+document.getElementById("rowApply").addEventListener("click", function () {
+	applyRightOfWay(parseFloat(document.getElementById("rowWidth").value));
 });
-document.getElementById("disclaimerClose").addEventListener("click", function () {
-	document.getElementById("disclaimer").open = false;
+document.getElementById("rowWidth").addEventListener("keydown", function (event) {
+	if (event.key === "Enter") {
+		applyRightOfWay(parseFloat(document.getElementById("rowWidth").value));
+	}
 });
 
-createSearch();
+// help videos never autoplay; stop one when its popover closes
+document.querySelectorAll("calcite-popover").forEach(function (popover) {
+	popover.addEventListener("calcitePopoverClose", function () {
+		popover.querySelectorAll("video").forEach(function (video) {
+			video.pause();
+		});
+	});
+});
+
+// these links use href="#" so Enter activates them. Cancel the "#" navigation from window,
+// after Calcite's document listener has handled the click (it ignores prevented clicks).
+window.addEventListener("click", function (event) {
+	if (event.composedPath().some(function (el) {
+		return el.id === "searchHelp" || el.id === "measureHelp";
+	})) {
+		event.preventDefault();
+	}
+});
+
+// changing the distance redraws the buffer around the searched property and reselects properties
+function applyBufferDistance () {
+	var input = document.getElementById("bufferDistance"),
+		feet = parseFloat(input.value);
+	if (!(feet > 0) || feet > 5280) {
+		input.status = "invalid";
+		input.validationMessage = "Enter a distance from 1 to 5,280 feet.";
+		return;
+	}
+	input.status = "idle";
+	input.validationMessage = "";
+	if (subjectGeometry) {
+		pins = [pins[0]];
+		document.getElementById("rowWidth").value = "";
+		buffer(subjectGeometry);
+	}
+}
+document.getElementById("bufferDistance").addEventListener("calciteInputChange", applyBufferDistance);
+
+// About opens on load unless the viewer chose "Don't show this again" (saved in this browser only)
+var aboutDialog = document.getElementById("disclaimer"),
+	hideAbout = document.getElementById("hideAbout"),
+	hideAboutKey = "planMailList.hideAbout";
+function readHideAbout () {
+	try {
+		return localStorage.getItem(hideAboutKey) === "1";
+	} catch (error) {
+		return false;
+	}
+}
+function saveHideAbout (hide) {
+	try {
+		if (hide) {
+			localStorage.setItem(hideAboutKey, "1");
+		} else {
+			localStorage.removeItem(hideAboutKey);
+		}
+	} catch (error) {
+		// storage blocked (e.g. private browsing): the dialog will just show again next time
+	}
+}
+hideAbout.checked = readHideAbout();
+hideAbout.addEventListener("calciteCheckboxChange", function () {
+	saveHideAbout(hideAbout.checked);
+});
+document.getElementById("aboutButton").addEventListener("click", function () {
+	aboutDialog.open = true;
+});
+document.getElementById("disclaimerClose").addEventListener("click", function () {
+	aboutDialog.open = false;
+});
+if (!hideAbout.checked) {
+	aboutDialog.open = true;
+}
+
+createSearch(document.getElementById("addressSearch"), searchProperty);
+createSearch(document.getElementById("addSearch"), addPropertyByAddress);
