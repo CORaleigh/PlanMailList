@@ -50,13 +50,19 @@ function updateLayout () {
 	panel.slot = narrowScreen.matches ? "panel-bottom" : "panel-start";
 	panel.layout = narrowScreen.matches ? "horizontal" : "vertical";
 	panel.resizable = narrowScreen.matches;
+	// large inputs use 16px text, which stops iOS Safari zooming in on focus, and give bigger touch targets
+	["addressSearch", "addSearch", "bufferDistance", "rowWidth", "rowApply"].forEach(function (id) {
+		document.getElementById(id).scale = narrowScreen.matches ? "l" : "m";
+	});
+	// icon-only About on phones so the title fits; label="About this app" keeps its accessible name
+	document.getElementById("aboutButton").textContent = narrowScreen.matches ? "" : "About";
 }
 narrowScreen.addEventListener("change", updateLayout);
 updateLayout();
 
 const [
-	Map, VectorTileLayer, FeatureLayer, GraphicsLayer, Graphic, Point, Multipoint, Polyline, Extent, SpatialReference,
-	SimpleFillSymbol, SimpleLineSymbol, CIMSymbol, Query, query, bufferOperator, projectOperator
+	Map, VectorTileLayer, FeatureLayer, GraphicsLayer, Graphic, Point, Multipoint, Extent, SpatialReference,
+	SimpleFillSymbol, CIMSymbol, Query, query, bufferOperator, projectOperator, SketchViewModel
 ] = await $arcgis.import([
 	"@arcgis/core/Map.js",
 	"@arcgis/core/layers/VectorTileLayer.js",
@@ -65,16 +71,15 @@ const [
 	"@arcgis/core/Graphic.js",
 	"@arcgis/core/geometry/Point.js",
 	"@arcgis/core/geometry/Multipoint.js",
-	"@arcgis/core/geometry/Polyline.js",
 	"@arcgis/core/geometry/Extent.js",
 	"@arcgis/core/geometry/SpatialReference.js",
 	"@arcgis/core/symbols/SimpleFillSymbol.js",
-	"@arcgis/core/symbols/SimpleLineSymbol.js",
 	"@arcgis/core/symbols/CIMSymbol.js",
 	"@arcgis/core/rest/support/Query.js",
 	"@arcgis/core/rest/query.js",
 	"@arcgis/core/geometry/operators/bufferOperator.js",
-	"@arcgis/core/geometry/operators/projectOperator.js"
+	"@arcgis/core/geometry/operators/projectOperator.js",
+	"@arcgis/core/widgets/Sketch/SketchViewModel.js"
 ]);
 await projectOperator.load();
 
@@ -93,11 +98,10 @@ function distanceFeet (start, end) {
 	return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-var mapElement, graphicsLayer, bufferLayer, sketchLayer, pinGraphicsLayer, labels = [], pins = [],
+var mapElement, parcelLayer, graphicsLayer, bufferLayer, sketchLayer, pinGraphicsLayer, measureSketch, labels = [], pins = [],
 	// current map click mode: null, "add", "remove" or "measure"
 	mode = null,
 	addPoints = [],
-	measureStart = null,
 	// site address of each selected property, by PIN
 	siteAddresses = {},
 	// searched property's geometry, kept so the buffer can be redrawn at a new distance
@@ -388,7 +392,7 @@ function addPropertyByAddress (point) {
 
 var toolButtons = {measure: "measure", add: "addButton", remove: "removeButton"},
 	instructions = {
-		measure: "On the map, click or tap one edge of the right-of-way, then the opposite edge. You can also type the width below.",
+		measure: "On the map, click or tap one edge of the right-of-way, then the opposite edge. The line snaps to property lines; hold Ctrl to place a point freely, or press Esc to cancel. You can also type the width below.",
 		add: "Click or tap each property on the map to add it, then double-click or double-tap the last one to finish. You can also use Add a property by address below.",
 		remove: "Click or tap a red property on the map to remove it, or use the Remove buttons under Selected properties below."
 	};
@@ -396,7 +400,9 @@ var toolButtons = {measure: "measure", add: "addButton", remove: "removeButton"}
 function setMode (newMode) {
 	mode = newMode;
 	addPoints = [];
-	measureStart = null;
+	if (measureSketch && measureSketch.state === "active") {
+		measureSketch.cancel();
+	}
 	sketchLayer.removeAll();
 	Object.keys(toolButtons).forEach(function (key) {
 		document.getElementById(toolButtons[key]).appearance = (key === mode) ? "solid" : "outline";
@@ -404,6 +410,46 @@ function setMode (newMode) {
 	var notice = document.getElementById("instructions");
 	notice.open = !!instructions[mode];
 	notice.querySelector("[slot=message]").textContent = instructions[mode] || "";
+	if (mode === "measure") {
+		startMeasure();
+	}
+}
+
+// two-point measure line that snaps to the parcel lines
+function startMeasure () {
+	if (!measureSketch) {
+		measureSketch = new SketchViewModel({
+			view: mapElement.view,
+			layer: sketchLayer,
+			polylineSymbol: {type: "simple-line", style: "solid", color: [53, 172, 70], width: 3},
+			snappingOptions: {
+				enabled: true,
+				featureSources: [{layer: parcelLayer, enabled: true}]
+			}
+		});
+		measureSketch.on("create", function (event) {
+			var path = event.graphic && event.graphic.geometry && event.graphic.geometry.paths[0];
+			// finish as soon as the second point is placed
+			if (event.state === "active" && event.toolEventInfo && event.toolEventInfo.type === "vertex-add" && path.length >= 2) {
+				measureSketch.complete();
+			} else if (event.state === "complete") {
+				measureComplete(path, event.graphic.geometry.spatialReference);
+			} else if (event.state === "cancel" && mode === "measure") {
+				// Esc
+				setMode(null);
+			}
+		});
+	}
+	measureSketch.create("polyline");
+}
+
+function measureComplete (path, spatialReference) {
+	var start = new Point({x: path[0][0], y: path[0][1], spatialReference: spatialReference}),
+		end = new Point({x: path[path.length - 1][0], y: path[path.length - 1][1], spatialReference: spatialReference}),
+		length = distanceFeet(start, end);
+	setMode(null);
+	document.getElementById("rowWidth").value = String(Math.round(length));
+	applyRightOfWay(length);
 }
 
 function removeProperty (event) {
@@ -459,21 +505,6 @@ function finishAdd () {
 	sketchLayer.removeAll();
 }
 
-function measureLine (start, end) {
-	return new Polyline({paths: [[[start.x, start.y], [end.x, end.y]]], spatialReference: mapElement.spatialReference});
-}
-
-function measureClick (event) {
-	if (!measureStart) {
-		measureStart = event.mapPoint;
-		return;
-	}
-	var length = distanceFeet(measureStart, event.mapPoint);
-	setMode(null);
-	document.getElementById("rowWidth").value = String(Math.round(length));
-	applyRightOfWay(length);
-}
-
 // typed (keyboard) or measured right-of-way width, in feet
 function applyRightOfWay (width) {
 	var input = document.getElementById("rowWidth");
@@ -491,21 +522,6 @@ function applyRightOfWay (width) {
 	input.status = "idle";
 	input.validationMessage = "";
 	secondBuffer(bufferLayer.graphics.getItemAt(0), width);
-}
-
-function measureMove (event) {
-	if (mode !== "measure" || !measureStart) {
-		return;
-	}
-	var end = mapElement.toMap(event);
-	if (!end) {
-		return;
-	}
-	sketchLayer.removeAll();
-	sketchLayer.add(new Graphic({
-		geometry: measureLine(measureStart, end),
-		symbol: new SimpleLineSymbol({style: "solid", color: [53, 172, 70], width: 3})
-	}));
 }
 
 function secondBuffer(graphic, distance) {
@@ -592,13 +608,14 @@ graphicsLayer = new GraphicsLayer();
 // soft dark shadow keeps the bright cyan buffer readable over light parts of the basemap
 bufferLayer = new GraphicsLayer({effect: "drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.4))"});
 sketchLayer = new GraphicsLayer();
+parcelLayer = new FeatureLayer({url: config.propertyService + "/0", title: "Property", popupEnabled: false});
 // the map's built-in graphics can't take effects, so the pin gets its own layer for the blurred shadow
 pinGraphicsLayer = new GraphicsLayer({effect: "drop-shadow(1px 3px 3px rgba(0, 0, 0, 0.45))"});
 mapElement = document.getElementById("map");
 mapElement.map = new Map({
 	basemap: {baseLayers: [new VectorTileLayer({portalItem: {id: config.map.basemap.portalItemId}})]},
 	layers: [
-		new FeatureLayer({url: config.propertyService + "/0", title: "Property", popupEnabled: false}),
+		parcelLayer,
 		graphicsLayer,
 		bufferLayer,
 		sketchLayer,
@@ -618,9 +635,6 @@ mapElement.addEventListener("arcgisViewClick", function (event) {
 		case "remove":
 		removeProperty(event.detail);
 		break;
-		case "measure":
-		measureClick(event.detail);
-		break;
 	}
 });
 
@@ -632,10 +646,6 @@ mapElement.addEventListener("arcgisViewDoubleClick", function (event) {
 		addProperty(event.detail);
 		finishAdd();
 	}
-});
-
-mapElement.addEventListener("arcgisViewPointerMove", function (event) {
-	measureMove(event.detail);
 });
 
 document.getElementById("labelsButton").addEventListener("click", generateLabels);
